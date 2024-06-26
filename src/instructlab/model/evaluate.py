@@ -1,5 +1,7 @@
 # Standard
 import os
+import subprocess
+import time
 
 # Third Party
 from click_didyoumean import DYMGroup
@@ -57,12 +59,12 @@ def get_evaluator(
             evaluator_class = BENCHMARK_TO_CLASS_MAP[benchmark]
             if benchmark == "mt_bench":
                 return evaluator_class(
-                    model_name, judge_model_name, output_dir, max_workers
+                    "test_model", "judge_model", output_dir, max_workers
                 )
             else:
                 return evaluator_class(
-                    model_name,
-                    judge_model_name,
+                    "test_model",
+                    "judge_model",
                     taxonomy_path,
                     branch,
                 )
@@ -252,17 +254,28 @@ def evaluate(
     if benchmark == "mt_bench":
         # TODO: Serve model
         print("Generating answers...")
-        evaluator.gen_answers("http://localhost:8000/v1")
+        try:
+            proc = subprocess.Popen(["python", "-m", "vllm.entrypoints.openai.api_server", "--model", model_name, "--tensor-parallel-size", "1", "--served-model-name", "test_model"])
+            time.sleep(60)
+            evaluator.gen_answers("http://localhost:8000/v1")
+        finally:
+            proc.terminate()
 
         # TODO: Serve judge model
         print("Evaluating answers...")
-        overall_score, qa_pairs, turn_scores = evaluator.judge_answers(
-            "http://localhost:8000/v1"
-        )
-        print(f"Overall Score: {overall_score}")
-        print(f"Turn 1 Score: {turn_scores[0]}")
-        print(f"Turn 2 Score: {turn_scores[1]}")
-        print(f"QA Pairs Length: {len(qa_pairs)}")
+        try:
+            proc = subprocess.Popen(["python", "-m", "vllm.entrypoints.openai.api_server", "--model", judge_model_name, "--tensor-parallel-size", "1", "--served-model-name", "judge_model"])
+            time.sleep(60)
+            overall_score, qa_pairs, turn_scores = evaluator.judge_answers(
+                "http://localhost:8000/v1"
+            )
+            proc.terminate()
+            print(f"Overall Score: {overall_score}")
+            print(f"Turn 1 Score: {turn_scores[0]}")
+            print(f"Turn 2 Score: {turn_scores[1]}")
+            print(f"QA Pairs Length: {len(qa_pairs)}")
+        finally:
+            proc.terminate()
 
     elif benchmark == "mt_bench_branch":
         # TODO: Serve model
